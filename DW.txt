@@ -1,0 +1,120 @@
+DIM
+商品维度表 sku_info,spu_info(id,name),base_category3(id,name,category2_id),base_trademark(id,name),
+ssku_attr_value(collect_set(named_struct("",name,"value",value))) group by sku_id,sku_sale_attr_value(collect_set(named_struct)
+优惠券维度表
+活动维度表（全量） activity_rule，activity_info
+地区维度表
+时间维度表
+用户维度表(连链表 新增及其变化) 全连接(full outer){old,new} 开始动态分区，
+
+DWD
+用户行为{
+启动日志表
+曝光日志表
+动作日志表
+错误日志表
+页面日志表
+}
+
+
+业务日志{
+	事务性事实表{
+		评价事实表
+		订单明细事实表(oder_detail,oder_info,detail_activity,detail_coupon)
+		退单事实表(order_refund_info,oder_info(id,province_id))
+	}
+	
+	周期型快照事实表{
+	 加购事实表
+	 收藏事实表
+	}
+	
+	累积型快照事实表{ 
+		优惠券领用事实表(used_time,expire_time)完成与未完成 coalesce(date_format(nvl(),'yyyy-MM-dd'))
+		支付事实表(callback_time,province_id)
+		退款事实表 (callback_time,user_id,province_id) 
+		订单事实表(cancel_time,finish_time,refund_time,expire_time)
+	}
+
+}
+
+
+DWS
+	访客主题{
+		insert overwrite table dws_visitor_action_daycount partition(dt='2020-06-14')
+		select
+			t1.mid_id,
+			t1.brand,
+			t1.model,
+			t1.is_new,
+			t1.channel,
+			t1.os,
+			t1.area_code,
+			t1.version_code,
+			t1.visit_count,
+			t3.page_stats
+		from	
+		(select 
+			mid_id,
+			brand,
+			model,
+			if(array_contains(collect_set(is_new),'0'),'0','1')
+			collect_set(channel),
+			collect_set(os),
+			collect_set(area_code),
+			collect_set(version_code),
+			sum(if(last_page_id is null,1,0))
+		from dwd_page_log
+		gourp by mid_id,brand,model)t1 
+		join(
+			select
+				mid_id,
+				brand,
+				model,
+				page_id,
+				collect_set(named_struct("page_id",page_id,"page_count",page_count,"during_time",during_time)) page_stats
+			from
+			(select 
+				mid_id,
+				brand,
+				model,
+				page_id,
+				count(1) page_count,
+				sum(during_time) during_time
+			from dwd_page_log
+			where dt=$do_date
+			gourp by mid_id,brand,model,page_id)t2
+			group by mid_id,model,brand
+			) t3 on t1.mid_id=t3.mid_id
+		and t1.brand=t3.brand
+		and t1.model=t3.model;
+ }
+ 
+用户主题{
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

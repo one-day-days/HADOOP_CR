@@ -1,0 +1,69 @@
+--DagScheduler
+	--runJob
+		--submitJob
+			//将任务放入队列
+			--eventProcessLoop.post	
+				--evenQueue = new LinkedBlockingDeque[E]()
+				--evenQueue.put					
+					//将任务取
+					--evenQueue.take()
+					--onReceive(event)
+
+	--onReceive
+		--doOnReceive
+			--handleJobSubmitted
+				//创建结果阶段
+				--createResultStage
+					//查找血缘获取或创建上级阶段
+					--getOrCreateParentStages
+						//获取shuffle血缘
+						--getShuffleDependencies
+							//获取创建ShuffleMapStage
+							--getOrCreateShuffleMapStage
+								--createShuffleMapStage
+									--getOrCreateParentStages(rdd, jobId)
+				//提交阶段stage					--new ShuffleMapStage
+				--submitStage
+					--submitMissingTasks(stage, jobId.get)
+						--partitionsToCompute
+						--taskScheduler.submitTasks
+						
+						--TaskSchedulerImpl
+							--submitTasks
+								--createTaskSetManager
+								//添加任务
+								--schedulableBuilder.addTaskSetManager(new Taskset())
+								
+									--FIFOSchedulableBuilder
+										--addTaskSetManager
+											--rootPool.addSchedulable(manager)
+								
+								--backend.reviveOffers()
+								
+									--CoarseGrainedSchedulerBackend
+										--receive
+											--makeOffer
+												 --scheduler.resourceOffers(workOffers)
+													--resourceOffers(Task)					 
+														--rootPool.getSortedTaskSetQueue
+														
+															--Pool
+																--getSortedTaskSetQueue
+																	--taskSetSchedulingAlgorithm
+																	
+																		--launchTasks(taskDescs)
+	
+--CoarseGrainedExecutorBackend
+	--receive
+		//LaucnTask
+		
+		--Task
+			--LaucnTask
+				--new TaskRunner
+					--run
+						--task.run
+							--runTask
+						
+							--ShuffleMapTask
+								--runTask
+		

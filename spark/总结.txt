@@ -1,0 +1,49 @@
+SoarkSubmit:
+	//mainclass
+	prepareSubmitEnvironment()
+		YarnClusterApplication
+			new clinet(new YarnClint())
+				// 【Cluster】 org.apache.spark.deploy.yarn.ApplicationMaster
+				// 【Client 】 org.apache.spark.deploy.yarn.ExecutorLauncher
+				--createContainerLaunchContext
+
+
+SparkContext：
+	--SparkContext.createTaskScheduler
+		--val scheduler = cm.createTaskScheduler(sc, masterUrl)   // YARN Cluster模式
+		-- val backend = cm.createSchedulerBackend(sc, masterUrl, scheduler)  //YarnClusterSchedulerBackend
+			
+	DAGScheduler
+	
+		//eventQueue.put(event)
+		DAGSchedulerEventProcessLoop(new LinkedBlockingDeque[E]())
+		--handleJobSubmitted
+			--getOrCreateParentStages(rdd, jobId)
+		--submitStage(finalStage)
+		
+	TaskScheduler
+		--submitTasks(new TaskSet)
+		--createTaskSetManager(taskSet, maxTaskFailures)
+		--schedulableBuilder.addTaskSetManager(new Taskset())						
+			--FIFOSchedulableBuilder
+				--addTaskSetManager
+					--rootPool.addSchedulable(manager)							
+		--backend.reviveOffers()
+			--driverEndpoint.send(ReviveOffers) 
+		
+		
+	SchedulerBackend
+	
+		CoarseGrainSchedulerBackend
+			//创建 driverEndpoint
+			val driverEndpoint = rpcEnv.setupEndpoint(ENDPOINT_NAME, createDriverEndpoint())
+			
+			YarnClusterSchedulerBackend			
+			//new client().submitApplication()
+			
+			YarnClientSchedulerBackend
+			
+	SparkEnv
+	
+ApplicationMaster
+	startUserApplication()
