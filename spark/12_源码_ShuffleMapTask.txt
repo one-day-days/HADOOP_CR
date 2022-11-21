@@ -1,0 +1,88 @@
+ShufferMapTask
+	runTask
+		dep.shuffleWriterProcessor.write
+			//ShuffleWriteProcessor.scala
+			write
+				getwtite(dep.shuffleHandle,.....)
+					dep.shuffleHandle
+						//ShuffleManager -> SortShuffleManager
+						registerShuffle(shuffleId, this)
+							//dep.mapSideCombine   是否有map阶段预聚合（支持预聚合不能用）
+							// 如果下游分区器的数量，小于200（可配置），可以使用bypass
+							SortShuffleWriter.shouldBypassMergeSort(conf, dependency)
+							
+							// 是否支持将两个独立的序列化对象 重定位，聚合到一起
+							// 1默认的java序列化不支持；Kryo序列化支持重定位（可以用）
+							// 2支持预聚合也不能用
+							//3如果下游分区的数量大于16777216，也不能用
+							if (!dependency.serializer.supportsRelocationOfSerializedObjects)
+							SortShuffleManager.canUseSerializedShuffle(dependency)
+					
+				writer.write
+					//插入数据
+					//ExternalSorter.scala
+					sorter.insertAll(records)
+						 if (shouldCombine) //判断是否支持预聚合，支持预聚合，采用map结构，不支持预聚合采用buffer结构
+							//// 如果支持预聚合，在map阶段聚合，将相同key，的value聚合
+							true map.changeValue 
+							// 如果不支持预聚合，value不需要聚合 (key，(value1,value2))
+							false buffer.insert
+							//是否溢写操作
+							maybeSpillCollection
+								//Spillable.scala
+								maybeSpill 
+									//数据长度大于默认内存加申请内存
+									//ExternalSorter.scala 溢写
+									spill()
+										spillMemoryIteratorToDisk(inMemoryIterator)
+										diskBlockManager.createTempShuffleBlock() // 创建临时文件
+										write // 溢写文件前，fileBufferSize缓冲区大小默认32m
+									releaseMemory() //释放内存
+					sorter.writePartitionedMapOutput() //合并
+						// 如果溢写文件为空，只对内存中数据处理
+						if (spills.isEmpty)
+						//如果溢写文件不为空，需要将多个溢写文件合并
+						this.partitionedIterator
+							merge() // 合并溢写文件和内存中数据
+								mergeSort() //归并排序
+					
+					mapOutPutWrite.commitAllpartition() // 写磁盘
+						writeIndexFileAndCommit()
+									
+									
+
+ResultTask
+	rdd.iterator
+		getOrCompute
+			computeOrReadCheckpoint
+				 compute
+					SparkEnv.get.shuffleManager.getReader()
+						new BlockStoreShuffleReader // 读缓冲区大小 默认 48m
+					read()									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									
+									

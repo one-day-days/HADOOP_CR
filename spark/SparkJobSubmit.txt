@@ -1,0 +1,237 @@
+Driver ---->main ----> SparkContext --->  RDD ---> RDD ---->RDD
+		---RDD.collect()
+
+第一部分： SparkContext的构造
+SparkContext  （Driver构造）
+	核心属性：  var _env: SparkEnv ：  封装了Spark所有的环境信息（cache，序列化器，BM）
+				_env = createSparkEnv(_conf, isLocal, listenerBus)
+				
+	
+				var _taskScheduler: TaskScheduler  //任务调度器，目的将Task发送给Executor执行
+				 val (sched, ts) = SparkContext.createTaskScheduler(this, master, deployMode)    //528行
+						--case masterUrl =>
+							--val scheduler = cm.createTaskScheduler(sc, masterUrl)   // YARN Cluster模式
+							-- val backend = cm.createSchedulerBackend(sc, masterUrl, scheduler)  //YarnClusterSchedulerBackend
+								--YarnClusterSchedulerBackend 父类 YarnSchedulerBackend 的构造器中 
+								-- 爷爷类 CoarseGrainedSchedulerBackend 的构造器
+										// 名称： CoarseGrainedScheduler  端点类型： DriverEndpoint
+									--属性 val driverEndpoint = rpcEnv.setupEndpoint(ENDPOINT_NAME, createDriverEndpoint())
+							
+							--cm.initialize(scheduler, backend)     // 初始化调度器要使用的调度池
+								--scheduler.asInstanceOf[TaskSchedulerImpl].initialize(backend)
+									--initialize   //TaskSchedulerImpl.initialize
+									//根据配置的调度模式，来创建对应的调度池，调度模式取决于配置spark.scheduler.mode，默认为FIFO
+										--  schedulableBuilder =new FIFOSchedulableBuilder(rootPool)
+										--schedulableBuilder.buildPools() 
+										
+							-- (backend, scheduler)  
+				
+				
+				private var _dagScheduler: DAGScheduler   //将RDD根据依赖划分阶段，在WebUI上可以查看DAG图，DAG是Spark区分于Hadoop的根本特征
+					--val eventProcessLoop = new DAGSchedulerEventProcessLoop(this)
+					--eventProcessLoop.start()   //在构造DAGScheduler时就运行
+						-- onStart()   //{}
+						--eventThread.start()
+							----eventThread.run(){
+								while (!stopped.get) {
+								val event = eventQueue.take()    //从事件队列中取出一个事件
+								try {
+									onReceive(event)            //处理事件
+										--doOnReceive(event)
+											--case JobSubmitted
+												=>dagScheduler.handleJobSubmitted  // 见第三部分
+								} 
+							}
+
+第二部分：  调用行动算子，提交Job
+RDD.collect
+	--val results = sc.runJob(this, (iter: Iterator[T]) => iter.toArray)
+		-- dagScheduler.runJob(rdd, cleanedFunc, partitions, callSite, resultHandler, localProperties.get)
+			--val waiter = submitJob(rdd, func, partitions, callSite, resultHandler, properties)   // DAGScheduler 提交Job
+				--val jobId = nextJobId.getAndIncrement()  //生成JobID
+				//  要求分区不能为空，如果分区为空，就立刻退出，如果有分区，此时
+					
+				--eventProcessLoop.post(JobSubmitted)         // 向  事件处理循环中 提交一个事件，将事件提交到队列的尾部，之后会有线程自动处理事件
+					--eventQueue.put(event)      
+					
+					
+第三部分： DAGScheduler.handleJobSubmitted 处理提交的Job
+--dagScheduler.handleJobSubmitted
+	--var finalStage: ResultStage = null
+	--finalStage = createResultStage(finalRDD, func, partitions, jobId, callSite)
+		--val parents = getOrCreateParentStages(rdd, jobId)    // 获取当前阶段的父阶段（不是祖先阶段）
+			// 获取当前RDD直接的有shuffle依赖的父亲
+			-- getShuffleDependencies(rdd).map { shuffleDep =>
+				  getOrCreateShuffleMapStage(shuffleDep, firstJobId)   // 一旦查找父RDD的shuffle依赖信息，此时就创建一个ShuffleMapStage
+					// 先从之前创建的Map集合中取
+					--shuffleIdToMapStage.get(shuffleDep.shuffleId) match {
+						  case Some(stage) =>
+							stage    //取出就返回
+
+						  case None =>   //没取到
+								// 将当前ShuffleMapStage 的所有缺失的 祖先ShuffleMapStage全部创建
+							getMissingAncestorShuffleDependencies(shuffleDep.rdd).foreach { dep =>
+								// 判断祖先 ShuffleMapStage是否确实
+							  if (!shuffleIdToMapStage.contains(dep.shuffleId)) {
+							  // 先创建 祖先 ShuffleMapStage
+								createShuffleMapStage(dep, firstJobId)
+							  }
+							}
+							// Finally, create a stage for the given shuffle dependency.
+							// 最后，再创建当前 rdd 直接 父RDD的ShuffleMapStage
+							createShuffleMapStage(shuffleDep, firstJobId)
+								-- val numTasks = rdd.partitions.length     //numTasks=分区数
+								--val parents = getOrCreateParentStages(rdd, jobId)
+								--val stage = new ShuffleMapStage
+								--shuffleIdToMapStage(shuffleDep.shuffleId) = stage  
+							
+							// 所有的ShuffleMapStage全部结束
+						}
+				}.toList
+				
+		-- val stage = new ResultStage(id, rdd, func, partitions, parents, jobId, callSite)
+		// 所有的Stage全部结束， Stage 要么是 ShuffleMapStage，要么是 ResultStage，最后一个是ResultStage
+		
+	
+	// 如果是ResultStage，提交result-job，如果是ShuffleMapStage,运行 map-shuffle job
+	-- val job = new ActiveJob(jobId, finalStage, callSite, listener, properties)
+	-- finalStage.setActiveJob(job)
+	--submitStage(finalStage)       // 提交最后的阶段，DAGScheduler完成工作
+		// 获取当前最后阶段是否有没有提交的缺失的父阶段，将缺失的父阶段按照ID升序排序，ID小的会被优先提交
+		--val missing = getMissingParentStages(stage).sortBy(_.id)   
+		--if (missing.isEmpty){   //没有缺失的父阶段，都已经提交或压根就没有父阶段
+			--submitMissingTasks(stage, jobId.get)  //提交当前阶段，封装Task来运行这个阶段的逻辑
+				--val tasks: Seq[Task[_]]=try{
+					case stage: ShuffleMapStage =>
+						partitionsToCompute.map{
+							 new ShuffleMapTask         //如果是ShuffleMapStage，每个分区都创建一个 ShuffleMapTask
+						}
+					
+					case stage: ResultStage =>
+					partitionsToCompute.map{
+							 new ResultTask         //如果是ShuffleMapStage，每个分区都创建一个 ResultTask
+						}
+					}
+					
+				--if (tasks.nonEmpty){
+					taskScheduler.submitTasks(new TaskSet)   // 一个Stage如果有多个分区，就有多个Task，这些Task会放入一个TaskSet
+															// 一个stage对应一个 TaskSet
+				}
+			}else {
+          for (parent <- missing) {
+            submitStage(parent)     // 只要有没有提交的父阶段，就先提交父阶段
+          }
+		  waitingStages += stage  // 将当前提交的父阶段放入要等待执行的阶段中
+		
+		
+		
+第四部分： TaskScheduler 负责调度 Task 发送到Executor进行计算
+TaskScheduler
+	--submitTasks(new TaskSet)
+		--val tasks = taskSet.tasks   // 从TaskSet中取出 tasks
+		--val manager = createTaskSetManager(taskSet, maxTaskFailures)  
+			// 每个Stage 会创建一个 TaskSet，每个TaskSet又会创建一个对应的TaskSetManager
+			--new TaskSetManager(this, taskSet, maxTaskFailures, blacklistTrackerOpt) 
+			
+		--val stage = taskSet.stageId   // 获取当前阶段ID
+		--schedulableBuilder.addTaskSetManager(manager, manager.taskSet.properties)  // 将当前TaskSetManager添加到调度池中
+		
+		--backend.reviveOffers()  //  从调度池中，取出TaskSetManager，开始调度
+			-- driverEndpoint.send(ReviveOffers)       //CoarseGrainedSchedulerBackend.reviveOffers
+			
+			
+第五部分 ： DriverEndpoint 处理 ReviveOffers消息
+DriverEndpoint
+	--receive
+		-- case ReviveOffers => makeOffers()
+			--val taskDescs={
+				--val activeExecutors = executorDataMap.filterKeys(isExecutorActive)  // 筛选当前active状态的所有的executors
+				--val workOffers = activeExecutors.map{
+					case (id, executorData) => new WorkerOffer   // 每个active的executor都创建一个 WorkerOffer
+					}
+					
+				//此方法由集群调用，在集群的slave阶段上准备资源。 根据TaskSet的优先级，以轮询的方式发送到集群，以保证负载均衡
+				--scheduler.resourceOffers(workOffers)  
+					--val sortedTaskSets = rootPool.getSortedTaskSetQueue.filterNot(_.isZombie)
+						--val sortedTaskSetQueue = new ArrayBuffer[TaskSetManager]  // 创建一个排序后的TaskSetManager的集合
+						// 从rootPool中获取schedulableQueue，之后将队列中的TaskSet，调用 调度算法 进行排序
+						// 默认使用 FIFOSchedulingAlgorithm() 的比较器排序，stageId 小的排在前面
+						--val sortedSchedulableQueue =
+								schedulableQueue.asScala.toSeq.sortWith(taskSetSchedulingAlgorithm.comparator)
+								
+						// 将排好序的 TaskSetManager取出，依次放入sortedTaskSetQueue
+						--sortedTaskSetQueue
+					
+					// 对已经排好序的TaskSetManager 进行各种处理（看哪个executor适合运算这个TaskSetManager）
+					// 每个TaskSetManager 都有一个属性 var myLocalityLevels = computeValidLocalityLevels()
+					// 在计算时，import TaskLocality.{PROCESS_LOCAL, NODE_LOCAL, NO_PREF, RACK_LOCAL, ANY}
+					// 所有的 TaskSetManager的myLocalityLevels 都有ANY，之后看是否复合其他条件，加入对应的级别
+					-- for (currentMaxLocality <- taskSet.myLocalityLevels) {  //尝试从TaskSetManager的所有本地化级别中获取最优的
+					
+					-- return tasks    // 返回设置和处理后的tasks
+					}
+					
+				--if (taskDescs.nonEmpty) {
+					launchTasks(taskDescs)     // 发送Task
+						--val serializedTask = TaskDescription.encode(task)  //序列化每个Task的描述
+						-- val executorData = executorDataMap(task.executorId)  // 获取当前Tasks应该发往的executor的信息
+						// 获取要发送的exeuctor的通信端点的引用，发送 LaunchTask信息，同时将 TaskDesc也发送过去
+						-- executorData.executorEndpoint.send(LaunchTask(new SerializableBuffer(serializedTask)))
+				}
+				
+第六部分：  通信中的Executor收到消息进行处理
+CoarseGrainedExecutorBackend.receive
+	-- case LaunchTask(data) =>
+			--val taskDesc = TaskDescription.decode(data.value)  // 将TaskDesc反序列化
+			--executor.launchTask(this, taskDesc)
+				--val tr = new TaskRunner(context, taskDescription)   // 创建一个运行Task的线程
+				--threadPool.execute(tr)     // 运行线程,执行tr的run方法
+				// 从Task的描述信息中，反序列化取出Task
+					-- task = ser.deserialize[Task[Any]](
+							taskDescription.serializedTask, Thread.currentThread.getContextClassLoader)
+					--task.run
+						-- val taskContext = new TaskContextImpl
+							--runTask(context)
+								//不同类型的Task运行自己的处理逻辑
+								// 将当前stage的结果写出
+								-- ShuffleMapTask
+									--dep.shuffleWriterProcessor.write(rdd, dep, mapId, context, partition)
+										-- var writer: ShuffleWriter[Any, Any] = null
+										-- val manager = SparkEnv.get.shuffleManager
+										// shuffle以什么形式写出，由shuffleManager决定
+										--writer = manager.getWriter
+										// 使用RDD的迭代器，写出当前Stage最后一个RDD中的数据
+										--writer.write(
+												// rdd.iterator  是个方法
+												rdd.iterator(partition, context).asInstanceOf[Iterator[_ <: Product2[Any, Any]]])
+												      // 判断是否使用了缓存
+												-- if (storageLevel != StorageLevel.NONE) { 
+															// 从缓存中获取RDD，如果缓存中没有就计算得到
+													  getOrCompute(split, context)
+													} else {
+														// 尝试从ck目录中获取RDD，如果没有就计算得到
+													  computeOrReadCheckpoint(split, context)
+														--if (isCheckpointedAndMaterialized) {
+															// 如果ck目录有，获取CheckPointRDD，调用它的iterator方法
+															  firstParent[T].iterator(split, context)
+															} else {
+																//计算得到
+															  compute(split, context)
+																
+																-- textFile  new HadoopRDD   :  compute的逻辑就是返回迭代当前这片数据的迭代器
+																-- map   MapPartitionsRDD   : compute 
+																					 f(context, split.index, firstParent[T].iterator(split, context))
+																					  --(_, _, iter) => iter.map(cleanF)  (context, split.index, firstParent[T].iterator(split, context))
+																					  -- (_, _, iter) => iter.map( word => (word, 1))  (context, split.index, firstParent[T].iterator(split, context))
+															}	
+													}
+													
+												
+								// 运行行动算子最终的逻辑
+								-- ResultTask 
+									// func 是调用行动算子的RDD 行动算子的逻辑
+									// 以collect 为例，func: (iter: Iterator[T]) => iter.toArray
+									// rdd.iterator(partition, context) : 调用 ResultStage 最后一个调用行动算子的RDD的compute()
+									// 
+									--func(context, rdd.iterator(partition, context))
+			

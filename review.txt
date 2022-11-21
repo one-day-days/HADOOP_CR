@@ -1,0 +1,41 @@
+ConcurrentHashmap:
+	1.7:ReentrantLock
+		Segment 16
+		volatile HashEntry
+		
+	1.8:Synchronized(1.6进行优化)
+		数组+链表+红黑树
+		
+Arrary(trasient elementdata) 1.5 vecotr
+
+
+Kafka:	
+	controller
+	coordinator
+
+2PC
+	阶段一：提交事务请求
+	1.事务询问
+	2.执行事务
+	3.各参与者向协调者提交响应
+	阶段二：执行事务提交
+	
+3PC
+	阶段一：CanCommit
+	1.事务询问
+	2.参与者返回应答
+	阶段二：PreCommit
+	1.发送预提交请求
+	2.事务预提交
+	2.各参与者向协调者反馈预提交执行响应
+	阶段三：doCommit
+	1.发送提交请求
+	2.事务提交
+	2.反馈事务提交结果
+	4.完成事务
+	
+Paxos:(Proposer,Acceptor,Learner)
+	1.Prepare
+	2.Accept
+	3.Learn
+	

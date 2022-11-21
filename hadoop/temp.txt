@@ -1,0 +1,140 @@
+public JobStateInternal transition(JobImpl job, JobEvent event) {  
+        
+      // 调用作业度量指标体系metrics的submittedJob()方法，提交作业  
+      job.metrics.submittedJob(job);  
+        
+      // 调用作业度量指标体系metrics的preparingJob()方法，开始作业准备  
+      job.metrics.preparingJob(job);  
+  
+      // 新旧API创建不同的作业上下文JobContextImpl实例  
+      if (job.newApiCommitter) {  
+        job.jobContext = new JobContextImpl(job.conf,  
+            job.oldJobId);  
+      } else {  
+        job.jobContext = new org.apache.hadoop.mapred.JobContextImpl(  
+            job.conf, job.oldJobId);  
+      }  
+        
+      try {  
+            
+        // 调用setup()方法，完成作业启动前的部分初始化工作  
+        setup(job);  
+          
+        // 设置作业job对应的文件系统fs  
+        job.fs = job.getFileSystem(job.conf);  
+  
+        //log to job history  
+        // 创建作业已提交事件JobSubmittedEvent实例jse  
+        JobSubmittedEvent jse = new JobSubmittedEvent(job.oldJobId,  
+              job.conf.get(MRJobConfig.JOB_NAME, "test"),   
+            job.conf.get(MRJobConfig.USER_NAME, "mapred"),  
+            job.appSubmitTime,  
+            job.remoteJobConfFile.toString(),  
+            job.jobACLs, job.queueName,  
+            job.conf.get(MRJobConfig.WORKFLOW_ID, ""),  
+            job.conf.get(MRJobConfig.WORKFLOW_NAME, ""),  
+            job.conf.get(MRJobConfig.WORKFLOW_NODE_NAME, ""),  
+            getWorkflowAdjacencies(job.conf),  
+            job.conf.get(MRJobConfig.WORKFLOW_TAGS, ""));  
+          
+        // 将作业已提交事件JobSubmittedEvent实例jse封装成作业历史事件JobHistoryEvent交由作业的时事件处理器eventHandler处理  
+        job.eventHandler.handle(new JobHistoryEvent(job.jobId, jse));  
+        //TODO JH Verify jobACLs, UserName via UGI?  
+  
+        // 调用createSplits()方法，创建分片，并获取任务分片元数据信息TaskSplitMetaInfo数组taskSplitMetaInfo  
+        TaskSplitMetaInfo[] taskSplitMetaInfo = createSplits(job, job.jobId);  
+          
+        // 确定Map Task数目numMapTasks：分片元数据信息数组的长度，即有多少分片就有多少numMapTasks  
+        job.numMapTasks = taskSplitMetaInfo.length;  
+        // 确定Reduce Task数目numReduceTasks，取作业参数mapreduce.job.reduces，参数未配置默认为0  
+        job.numReduceTasks = job.conf.getInt(MRJobConfig.NUM_REDUCES, 0);  
+  
+        // 确定作业的map和reduce权重mapWeight、reduceWeight  
+        if (job.numMapTasks == 0 && job.numReduceTasks == 0) {  
+          job.addDiagnostic("No of maps and reduces are 0 " + job.jobId);  
+        } else if (job.numMapTasks == 0) {  
+          job.reduceWeight = 0.9f;  
+        } else if (job.numReduceTasks == 0) {  
+          job.mapWeight = 0.9f;  
+        } else {  
+          job.mapWeight = job.reduceWeight = 0.45f;  
+        }  
+  
+        checkTaskLimits();  
+  
+        // 根据分片元数据信息计算输入长度inputLength，也就是作业大小  
+        long inputLength = 0;  
+        for (int i = 0; i < job.numMapTasks; ++i) {  
+          inputLength += taskSplitMetaInfo[i].getInputDataLength();  
+        }  
+  
+        // 根据作业大小inputLength，调用作业的makeUberDecision()方法，决定作业运行模式是Uber模式还是Non-Uber模式  
+        job.makeUberDecision(inputLength);  
+          
+        // 根据作业的Map、Reduce任务数目之和，外加10，  
+        // 初始化任务尝试完成事件TaskAttemptCompletionEvent列表taskAttemptCompletionEvents  
+        job.taskAttemptCompletionEvents =  
+            new ArrayList<TaskAttemptCompletionEvent>(  
+                job.numMapTasks + job.numReduceTasks + 10);  
+          
+        // 根据作业的Map任务数目，外加10，  
+        // 初始化Map任务尝试完成事件TaskCompletionEvent列表mapAttemptCompletionEvents  
+        job.mapAttemptCompletionEvents =  
+            new ArrayList<TaskCompletionEvent>(job.numMapTasks + 10);  
+          
+        // 根据作业的Map、Reduce任务数目之和，外加10，  
+        // 初始化列表taskCompletionIdxToMapCompletionIdx  
+        job.taskCompletionIdxToMapCompletionIdx = new ArrayList<Integer>(  
+            job.numMapTasks + job.numReduceTasks + 10);  
+  
+        // 确定允许Map、Reduce任务失败百分比，  
+        // 取参数mapreduce.map.failures.maxpercent、mapreduce.reduce.failures.maxpercent，  
+        // 参数未配置均默认为0，即不允许Map和Reduce任务失败  
+        job.allowedMapFailuresPercent =  
+            job.conf.getInt(MRJobConfig.MAP_FAILURES_MAX_PERCENT, 0);  
+        job.allowedReduceFailuresPercent =  
+            job.conf.getInt(MRJobConfig.REDUCE_FAILURES_MAXPERCENT, 0);  
+  
+        // create the Tasks but don't start them yet  
+        // 创建Map Task  
+        createMapTasks(job, inputLength, taskSplitMetaInfo);  
+        // 创建Reduce Task  
+        createReduceTasks(job);  
+  
+        // 调用作业度量指标体系metrics的endPreparingJob()方法，结束作业准备  
+        job.metrics.endPreparingJob(job);  
+          
+        // 返回作业内部状态，JobStateInternal.INITED，即已经初始化  
+        return JobStateInternal.INITED;  
+      } catch (Exception e) {  
+            
+        // 记录warn级别日志信息:Job init failed，并打印出具体异常  
+        LOG.warn("Job init failed", e);  
+        // 调用作业度量指标体系metrics的endPreparingJob()方法，结束作业准备  
+        job.metrics.endPreparingJob(job);  
+        job.addDiagnostic("Job init failed : "  
+            + StringUtils.stringifyException(e));  
+        // Leave job in the NEW state. The MR AM will detect that the state is  
+        // not INITED and send a JOB_INIT_FAILED event.  
+          
+        // 返回作业内部状态，JobStateInternal.NEW，即初始化失败后的新建  
+        return JobStateInternal.NEW;  
+      }  
+    }  
+1、调用setup()方法，完成作业启动前的部分初始化工作，实际上最重要的两件事就是：
+	1.1、获取并设置作业远程提交路径remoteJobSubmitDir；
+    1.2、获取并设置作业远程配置文件remoteJobConfFile；
+2、调用createSplits()方法，创建分片，并获取任务分片元数据信息TaskSplitMetaInfo数组taskSplitMetaInfo：
+	通过SplitMetaInfoReader的静态方法readSplitMetaInfo()，从作业远程提交路径remoteJobSubmitDir中读取作业分片元数据信息，也就是每个任务的分片元数据信息，以此确定Map任务数、作业运行方式等一些列后续内容；
+3、确定Map Task数目numMapTasks：分片元数据信息数组的长度，即有多少分片就有多少numMapTasks；
+4、确定Reduce Task数目numReduceTasks，取作业参数mapreduce.job.reduces，参数未配置默认为0；
+5、根据分片元数据信息计算输入长度inputLength，也就是作业大小；
+6、根据作业大小inputLength，调用作业的makeUberDecision()方法，决定作业运行模式是Uber模式还是Non-Uber模式：
+    小作业会通过Uber模式运行，相反，大作业会通过Non-Uber模式运行，可参见《Yarn源码分析之MRAppMaster：作业运行方式Local、Uber、Non-Uber》一文！
+7、确定允许Map、Reduce任务失败百分比，取参数mapreduce.map.failures.maxpercent、mapreduce.reduce.failures.maxpercent，参数未配置均默认为0，即不允许Map和Reduce任务失败；
+8、创建Map Task；
+9、创建Reduce Task；
+10、返回作业内部状态，JobStateInternal.INITED，即已经初始化；
+11、如果出现异常：
+11.1、记录warn级别日志信息:Job init failed，并打印出具体异常；
+11.2、返回作业内部状态，JobStateInternal.NEW，即初始化失败后的新建；

@@ -1,0 +1,97 @@
+CliDrive
+	run()
+		//参数解析
+		oproc.process_stage1(args)
+		//解析用户参数,包含"-e -f -v -database"等等
+		oproc.process_stage2
+		executeDriver(ss, conf, oproc);
+			//读取客户端的输入 HQL
+			reader.readLine(curPrompt + "> "))
+			//以按照“;”分割的方式解析
+			if (line.trim().endsWith(";") && !line.trim().endsWith("\\;")) {
+			line = prefix + line;
+			ret = cli.processLine(line, true);
+				//解析单行 HQL
+				ret = processCmd(command);
+					//1.如果命令为"quit"或者"exit",则退出
+					if (cmd_trimmed.toLowerCase().equals("quit") || 
+					cmd_trimmed.toLowerCase().equals("exit"))
+					//2.如果命令为"source"开头,则表示执行 HQL 文件,继续读取文件并解析
+					else if (tokens[0].equalsIgnoreCase("source"))
+					//3.如果命令以"!"开头,则表示用户需要执行 Linux 命令
+					else if (cmd_trimmed.startsWith("!"))
+					//4.以上三者都不是,则认为用户输入的为"select ..."正常的增删改查 HQL 语句,则进行 HQL 解析
+					processLocalCmd()
+						//获取系统时间作为开始时间,以便后续计算 HQL 执行时长
+						long start = System.currentTimeMillis();
+						//HQL 执行的核心方法
+						ret = qp.run(cmd).getResponseCode();
+							//org.apache.hadoop.hive.ql.Driver
+							run(command, false);
+								runInternal(command, alreadyCompiled);
+									//1.编译 HQL 语句
+									compileInternal(command, true);
+										compile(command, true, deferClose);
+											//HQL 生成 AST
+											ASTNode tree;									
+											tree = ParseUtils.parse(command, ctx);
+												 parse(command, ctx, null);
+													ASTNode tree = pd.parse(command, ctx, viewFullyQualifiedName);
+														//1.构建词法解析器
+														HiveLexerX lexer = new HiveLexerX(new ANTLRNoCaseStringStream(command));
+														//2.将 HQL 中的关键词替换为 Token
+														TokenRewriteStream tokens = new TokenRewriteStream(lexer);
+														HiveParser parser = new HiveParser(tokens);
+														//3.进行语法解析，生成最终的 AST
+														r = parser.statement();
+											//进一步解析抽象语法树
+											sem.analyze(tree, ctx);
+												analyzeInternal(ast);
+													// 1. Generate Resolved Parse tree from syntax tree
+													//从语法树生成解析解析树
+													boolean needsTransform = needsTransform();
+													//处理 AST，转换为 QueryBlock
+													if (!genResolvedParseTree(ast, plannerCtx)) {
+													return;
+													}
+																						
+									
+									//2.执行
+									execute();
+										//1.构建任务：根据任务树构建 MrJob
+										setQueryDisplays(plan.getRootTasks());
+										int mrJobs = Utilities.getMRTasks(plan.getRootTasks()).size();
+										int jobs = mrJobs + Utilities.getTezTasks(plan.getRootTasks()).size() + Utilities.getSparkTasks(plan.getRootTasks()).size();
+										//2.启动任务
+										TaskRunner runner = launchTask(task, queryId, noName, jobname,jobs, driverCxt);
+											//添加启动任务
+											cxt.launching(tskRun);
+											// Launch Task：根据是否可以并行来决定是否并行启动 Task
+											//可并行任务启动,实际上还是执行 tskRun.runSequential();
+											taskRun.start();
+											//不可并行任务启动,按顺序执行
+											tskRun.runSequential();
+												exitVal = tsk.executeTask(ss == null ? null : ss.getHiveHistory());
+													int retval = execute(driverContext);
+														//设置 MR 任务的 InputFormat、OutputFormat 等等这些 MRJob 的执行类
+														int ret = super.execute(driverContext);
+														//构建执行 MR 任务的命令
+														String isSilent = "true".equalsIgnoreCase(System.getProperty("test.silent")) ? "-nolog" : "";
+														String jarCmd = hiveJar + " " + ExecDriver.class.getName() + libJarsOption;
+														String cmdLine = hadoopExec + " jar " + jarCmd + " -plan " + planPath.toString() + " " + isSilent + " " + hiveConfArgs;
+														// Run ExecDriver in another JVM
+														executor = Runtime.getRuntime().exec(cmdLine, env, new File(workDir));
+
+										console.printInfo("OK");
+						
+								
+						//获取系统时间作为结束时间,以便后续计算 HQL 执行时长
+						long end = System.currentTimeMillis();
+						//打印头信息
+						printHeader(qp, out);
+						// print the results,包含结果集并获取抓取到数据的条数
+						int counter = 0;
+						//打印头信息
+						printHeader(qp, out);
+						// print the results,包含结果集并获取抓取到数据的条数
+						int counter = 0;

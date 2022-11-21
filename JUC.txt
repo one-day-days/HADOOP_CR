@@ -1,0 +1,90 @@
+	JUC
+		阻塞队列：
+			1.ArraryBlockingQueue
+			2.LinkedBlockingQueue:由链表结构组成的有界(但大小默认值 Integer>MAX_VAL UE)阻塞队列.
+			3.SynchronousQueue:不存储元素的阻塞队列,也即是单个元素的队列.
+			4.PriorityBlockingQueue:支持优先级排序的无界阻塞队列.
+			5.LinkedTransferQueue:由链表结构组成的无界阻塞队列.
+			6.LinkedBlockingDeque:由了解结构组成的双向阻塞队列.
+			
+		Executors：newFixedThreadPool(int) 
+				   newSingleThreadExecutor( )
+				   newCachedThreadPool(int) SynchronousQueue
+		
+		线程池：	
+			①. corePoolSize:线程池中的常驻核心线程数
+			在创建了线程池后,当有请求任务来之后,就会安排池中的线程去执行请求任务,近似理解为今日当值线程
+			当线程池中的线程数目达到corePoolSize后,就会把到达的任务放入到缓存队列当中.
+			②. maximumPoolSize:线程池能够容纳同时执行的最大线程数,此值大于等于1
+			③. keepAliveTime:多余的空闲线程存活时间,当空间时间达到keepAliveTime值时,多余的线程会被销毁直到只剩下corePoolSize个线程为止(非核心线程)
+			④. unit:keepAliveTime的单位
+			⑤. workQueue:任务队列,被提交但尚未被执行的任务(候客区)
+			⑥. threadFactory:表示生成线程池中工作线程的线程工厂,用户创建新线程,一般用默认即可(银行网站的logo | 工作人员的制服 | 胸卡等)
+			⑦. handler:拒绝策略,表示当线程队列满了并且工作线程大于等于线程池的最大显示 数(maxnumPoolSize)时如何来拒绝
+				AbortPolicy(默认):直接抛出RejectedException异常阻止系统正常运行
+				CallerRunsPolicy:"调用者运行"一种调节机制,该策略既不会抛弃任务,也不会抛出异常,而是返回给调用者进行处理
+				DiscardOldestPolicy:将最早进入队列的任务删除,之后再尝试加入队列
+				DiscardPolicy:直接丢弃任务,不予任何处理也不抛出异常.如果允许任务丢失,这是最好的拒绝策略
+
+		合理设计线程数：
+			CPU: coresize + 1
+			IO: coresize / 1 -(0.8 ~ 0.9)
+			
+		数据操作8大原子：
+			lock(锁定):作用于主内存的变量,把一个变量标记为一条线程独占状态
+			unlock(解锁):作用于主内存的变量,把一个处于锁定状态的变量释放出来,释放后 的变量才可以被其他线程锁定
+			read(读取):作用于主内存的变量,把一个变量值从主内存传输到线程的工作内存 中,以便随后的load动作使用
+			load(载入):作用于工作内存的变量,它把read操作从主内存中得到的变量值放入工作内存的变量副本中
+			use(使用):作用于工作内存的变量,把工作内存中的一个变量值传递给执行引擎
+			assign(赋值):作用于工作内存的变量,它把一个从执行引擎接收到的值赋给工作内 存的变量
+			store(存储):作用于工作内存的变量,把工作内存中的一个变量的值传送到主内存 中,以便随后的write的操作
+			write(写入):作用于工作内存的变量,它把store操作从工作内存中的一个变量的值 传送到主内存的变量中
+			
+		heppens-before：
+			①. 次序规则
+			一个线程内,按照代码顺序,写在前面的操作先行发生于写在后面的操作(强调的是一个线程)
+			前一个操作的结果可以被后续的操作获取。将白点就是前面一个操作把变量X赋值为1,那后面一个操作肯定能知道X已经变成了1
+			②. 锁定规则
+			(一个unlock操作先行发生于后面((这里的"后面"是指时间上的先后))对同一个锁的lock操作(上一个线程unlock了,下一个线程才能获取到锁,进行lock))
+			③. volatile变量规则
+			(对一个volatile变量的写操作先行发生于后面对这个变量的读操作,前面的写对后面的读是可见的,这里的"后面"同样是指时间是的先后)
+			④. 传递规则
+			(如果操作A先行发生于操作B,而操作B又先行发生于操作C,则可以得出A先行发生于操作C)
+			⑤. 线程启动规则(Thread Start Rule)
+			(Thread对象的start( )方法先行发生于线程的每一个动作)
+			⑥. 线程中断规则(Thread Interruption Rule)
+			对线程interrupt( )方法的调用先发生于被中断线程的代码检测到中断事件的发生
+			可以通过Thread.interrupted( )检测到是否发生中断
+			⑦. 线程终止规则(Thread Termination Rule)
+			(线程中的所有操作都先行发生于对此线程的终止检测)
+			⑧. 对象终结规则(Finalizer Rule)
+			(对象没有完成初始化之前,是不能调用finalized( )方法的 )
+		
+
+		volatile：(可见性，有序性，不保证原子性)
+			①.当第一个操作为volatile读时,不论第二个操作是什么,都不能重排序。这个操作保证了volatile读之后的操作不会被重排到volatile读之前
+			②.当第二个操作为volatile写时,不论第一个操作是什么,都不能重排序。这个操作保证了volatile写之前的操作不会被重排到volatile写之后
+			③.当第一个操作为volatile写时,第二个操作为volatile读时,不能重排
+			       普通读写 volatile读 volatile写
+				   
+			
+			①. 写
+				在每个volatile写操作的前面插入个StoreStore屏障 普通写
+				在每个volatile写操作的后面插入个StoreLoad屏障	volatile读/写
+			②. 读
+				在每个volatile读操作的后面插入个LoadLoad屏障   普通读/volatile读
+				在每个volatile读操作的后面插入个LoadStore屏障	普通写/volatile写
+				
+		18罗汉:
+			(1). 基本类型原子类(AtomicInteger、AtomicBoolean、AtomicLong)
+			(2). 数组类型原子类 (AtomicIntegerArray、AtomicLongArray、AtomicReferenceArray)
+			(3). 引用类型原子类 (AtomicReference、AtomicStampedReference、AtomicMarkableReference)
+			(4). 对象的属性修改原子类 (AtomicIntegerFieldUp dater、AtomicLongFieldUpdater、AtomicRefere nceFieldUpdater)
+			(5). 原子操作增强类(DoubleAccumulator 、DoubleAdder 、LongAccumulator 、LongAdder)
+			(6). 第17位罗汉:Striped64 第18位罗汉: Number
+		
+		ThreadLocal:
+			ThreadLocal本地线程变量,线程自带的变量副本
+			
+		
+		

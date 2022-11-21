@@ -1,0 +1,51 @@
+CoarseGrainedExecutorBackend
+	--run
+		--RpcEnv.create
+			--new NettyRpcEnvFactory().create(config)					
+				--new NttyRpcEnv
+					//outboxs
+					--new ConcurrentHashMap[RpcAddress, Outbox]()							
+				--nettyEnv.startServer
+					--transportContext.createServer
+							--new TransportServer
+								--init
+									--NettyUtils.getServerChannelClass
+										//NIO EPOLL
+										--getServerChannelClass	
+										
+					--dispatcher.registerRpcEndpoint
+						--new NettyRpcEndpointRef
+							//TransClinet				
+							--new DedicatedMessageLoop
+								//messages.add(OnStart)
+								--new Inbox => onStart	
+		// 基于从Driver获取的SparkApp的配置，重新创建一个通信环境								
+		--SparkEnv.createExecutorEnv
+		// 向新创建的环境中，
+		//注册一个通信端点  Executor => CoarseGrainedExecutorBackend(RpcEndPoint)
+		//之后，CoarseGrainedExecutorBackend需要运行onStart()
+		--env.rpcEnv.setupEndpoint
+			--NttyRpcEnv.setupEndpoint
+				--dispatcher.registerRpcEndpoint
+						--new NettyRpcEndpointRef
+						//TransClinet				
+						--new DedicatedMessageLoop
+							//messages.add(OnStart)
+							--new Inbox => onStart	
+	--onStart
+		--driver = Some(ref)  // 获取Driver的EndpointRef
+		--ref.ask[Boolean](RegisterExecutor)  // 向Driver 发RegisterExecutor消息，要求Driver回复Boolean型的消息
+		--case Success(_) => self.send(RegisteredExecutor)    //收到true，自己给自己发送一个RegisteredExecutor消息
+
+	--receive
+		//RegisteredExecutor 创建计算对象
+		--new Executor
+		//executor这个计算对象启动之后会i、向driver发send消息
+		--driver.get.send(LaunchedExecutor(executorId))
+		
+	
+SparkContext
+	--_env = createSparkEnv(_conf, isLocal, listenerBus)
+		--SparkEnv.createDriverEnv
+			--create
+				--new NettyRpcEnvFactory().create(config)

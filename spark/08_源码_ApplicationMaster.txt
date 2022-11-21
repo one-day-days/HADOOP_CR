@@ -1,0 +1,69 @@
+ApplicationMaster
+
+	-- main
+	
+		// --class => userClass => SparkPi(WordCount)
+		-- new ApplicationMasterArguments
+		
+		-- master = new ApplicationMaster
+		
+		-- master.run()
+		
+		-- 【Client 】runExecutorLauncher
+		-- 【Cluster】runDriver
+		
+			// 1创建RMClient
+			private val client = new YarnRMClient()
+			// 2根据输入参数启动Driver
+			-- userClassThread = startUserApplication()
+			
+				-- ClassLoader.loadClass(args.userClass)
+					getMethod("main")
+					
+				-- new Thread().start()			
+					-- run				
+						-- mainMethod.invoke(null, userArgs.toArray)
+							-- WordCount
+								-- new SparkContext() // 创建Spark的环境
+								-- 【blocking....................】
+			
+			// Blocking -----------------------------------------
+			-- val sc = ThreadUtils.awaitResult
+			// 从SparkContext的SparkEnv属性中，获取RpcEnv
+			-- val rpcEnv = sc.env.rpcEnv
+			
+			// 注册
+			-- registerAM
+			// 创建并注册 AMEndpoint
+			--rpcEnv.setupEndpoint("YarnAM", new AMEndpoint(rpcEnv, driverRef))	
+			
+			// 资源分配
+			-- createAllocator
+			
+				-- allocator.allocateResources
+				
+					-- handleAllocatedContainers
+					
+						-- runAllocatedContainers
+							--ExcutorRunable().run()
+								--nmClient = NMClient.createNMClient()
+								//初始化NodeManager客户端
+								--nmClient.init(conf)
+								//启动NodeManager 客户端
+								--nmClient.start()
+								// 正式启动NM上的Container
+								--startContainer()					
+									// bin/java org.apache.spark.executor.YarnCoarseGrainedExecutorBackend
+									-- prepareCommand
+							
+							-- new YarnCoarseGrainedExecutorBackend
+								//CoarseGrainedExecutorBackend
+								--onstart
+								--receive
+									new Executor
+							
+							-- CoarseGrainedExecutorBackend.run(backendArgs, createFn)
+								-- env.rpcEnv.setupEndpoint("Executor",backendCreateFn(env.rpcEnv, arguments, env, cfg.resourceProfile))
+			
+			-- resumeDriver // 执行Spark作业
+			-- userClassThread.join()
